@@ -1,0 +1,701 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enhanced Urban Runner</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-color: #1a1a1a;
+            font-family: Arial, sans-serif;
+        }
+        
+        #gameCanvas {
+            border: 2px solid #333;
+            background-color: #2c2c2c;
+        }
+        
+        #gameUI {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: white;
+            font-size: 24px;
+            text-align: center;
+        }
+        
+        #powerUpUI {
+            position: absolute;
+            top: 60px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: white;
+            font-size: 18px;
+        }
+        
+        #highScores {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            color: white;
+            font-size: 18px;
+            text-align: right;
+        }
+        
+        .active-powerup {
+            color: #f1c40f;
+        }
+        
+        #startScreen {
+            position: absolute;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.8);
+            color: white;
+            z-index: 10;
+        }
+        
+        button {
+            padding: 10px 20px;
+            margin: 10px;
+            font-size: 18px;
+            background-color: #3498db;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        
+        button:hover {
+            background-color: #2980b9;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="startScreen">
+        <h1>Urban Runner</h1>
+        <p>Press Space or Touch to Jump<br>Collect coins and power-ups!</p>
+        <button id="startButton">Start Game</button>
+        <button id="customizeButton">Customize Character</button>
+    </div>
+    <div id="gameUI">
+        <div id="score">Score: 0</div>
+        <div id="coins">Coins: 0</div>
+    </div>
+    <div id="powerUpUI"></div>
+    <div id="highScores">
+        <h3>High Scores</h3>
+        <div id="scoresList"></div>
+    </div>
+    <canvas id="gameCanvas"></canvas>
+    <script>
+        // Game constants
+        const CANVAS_WIDTH = 800;
+        const CANVAS_HEIGHT = 400;
+        const GRAVITY = 0.5;
+        const JUMP_FORCE = -12;
+        const GROUND_HEIGHT = 40;
+
+        // New game features
+        const COIN_VALUE = 10;
+        const COMBO_MULTIPLIER = 1.5;
+        let comboTimer = 0;
+        let currentCombo = 1;
+        let coins = 0;
+        let isGameStarted = false;
+
+        // Character customization
+        const characterColors = ['#00ff00', '#ff0000', '#0000ff', '#ffff00'];
+        let currentCharacterColor = characterColors[0];
+
+        // Background building properties
+        const BUILDING_COLORS = ['#2c3e50', '#34495e', '#7f8c8d', '#95a5a6'];
+        const NUM_BUILDINGS = 5;
+
+        // Power-up types
+        const POWERUP_TYPES = {
+            SPEED_BOOST: 'speed',
+            DOUBLE_JUMP: 'jump',
+            INVINCIBILITY: 'invincible',
+            MAGNET: 'magnet' // New power-up type
+        };
+
+        // Initialize canvas
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = CANVAS_WIDTH;
+        canvas.height = CANVAS_HEIGHT;
+
+        // Game state
+        let gameState = {
+            score: 0,
+            speed: 5,
+            isGameOver: false,
+            backgrounds: [],
+            powerUps: [],
+            coins: [],
+            activePowerUps: {
+                speedBoost: false,
+                doubleJump: false,
+                invincibility: false,
+                magnet: false
+            }
+        };
+
+        // Initialize background buildings
+        for (let i = 0; i < NUM_BUILDINGS; i++) {
+            gameState.backgrounds.push({
+                x: i * (CANVAS_WIDTH / NUM_BUILDINGS),
+                width: CANVAS_WIDTH / NUM_BUILDINGS - 10,
+                height: 100 + Math.random() * 150,
+                color: BUILDING_COLORS[Math.floor(Math.random() * BUILDING_COLORS.length)]
+            });
+        }
+
+        // Player object
+        const player = {
+            x: 100,
+            y: CANVAS_HEIGHT - GROUND_HEIGHT,
+            width: 40,
+            height: 60,
+            velocityY: 0,
+            isJumping: false,
+            color: currentCharacterColor,
+            magnetRadius: 100
+        };
+
+        // Arrays for game objects
+        let obstacles = [];
+        let particles = [];
+
+        // High scores
+        let highScores = JSON.parse(localStorage.getItem('highScores')) || [];
+
+        // Game loop
+        function gameLoop() {
+            if (!gameState.isGameOver && isGameStarted) {
+                update();
+                draw();
+                requestAnimationFrame(gameLoop);
+            }
+        }
+
+        // Update game state
+        function update() {
+            // Update combo timer
+            if (comboTimer > 0) {
+                comboTimer--;
+            } else {
+                currentCombo = 1;
+            }
+
+            // Update background
+            gameState.backgrounds.forEach(building => {
+                building.x -= gameState.speed * 0.5;
+                if (building.x + building.width < 0) {
+                    building.x = CANVAS_WIDTH;
+                    building.height = 100 + Math.random() * 150;
+                    building.color = BUILDING_COLORS[Math.floor(Math.random() * BUILDING_COLORS.length)];
+                }
+            });
+
+            // Update power-ups
+            gameState.powerUps = gameState.powerUps.filter(powerUp => {
+                powerUp.x -= gameState.speed;
+                if (checkCollisionWith(player, powerUp)) {
+                    activatePowerUp(powerUp.type);
+                    createParticles(powerUp.x, powerUp.y, powerUp.color);
+                    return false;
+                }
+                return powerUp.x + powerUp.width > 0;
+            });
+
+            // Update coins
+            gameState.coins = gameState.coins.filter(coin => {
+                coin.x -= gameState.speed;
+
+                // Magnet power-up effect
+                if (gameState.activePowerUps.magnet) {
+                    const dx = player.x - coin.x;
+                    const dy = player.y - coin.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+
+                    if (distance < player.magnetRadius) {
+                        coin.x += dx * 0.1;
+                        coin.y += dy * 0.1;
+                    }
+                }
+
+                if (checkCollisionWith(player, coin)) {
+                    collectCoin();
+                    createParticles(coin.x, coin.y, '#f1c40f');
+                    return false;
+                }
+                return coin.x + coin.width > 0;
+            });
+
+            // Update particles
+            particles = particles.filter(particle => {
+                particle.x += particle.vx;
+                particle.y += particle.vy;
+                particle.life--;
+                return particle.life > 0;
+            });
+
+            // Update player
+            player.velocityY += GRAVITY;
+            player.y += player.velocityY;
+
+            // Ground collision
+            if (player.y > CANVAS_HEIGHT - GROUND_HEIGHT - player.height) {
+                player.y = CANVAS_HEIGHT - GROUND_HEIGHT - player.height;
+                player.velocityY = 0;
+                player.isJumping = false;
+            }
+
+            // Update score
+            gameState.score++;
+            document.getElementById('score').textContent = `Score: ${gameState.score}`;
+            document.getElementById('coins').textContent = `Coins: ${coins}`;
+
+            // Spawn power-ups
+            if (Math.random() < 0.005) {
+                spawnPowerUp();
+            }
+
+            // Spawn coins
+            if (Math.random() < 0.03) {
+                spawnCoin();
+            }
+
+            // Spawn obstacles
+            if (Math.random() < 0.02) {
+                spawnObstacle();
+            }
+
+            // Update obstacles
+            obstacles = obstacles.filter(obstacle => {
+                obstacle.x -= gameState.speed;
+                return obstacle.x + obstacle.width > 0;
+            });
+
+            // Check collisions
+            checkCollisions();
+
+            // Increase game speed over time
+            if (gameState.score % 500 === 0) {
+                gameState.speed += 0.5;
+            }
+
+            // Update power-up UI
+            updatePowerUpUI();
+        }
+
+        // Draw game elements
+        function draw() {
+            // Clear canvas
+            ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+            // Draw background (sky gradient)
+            const gradient = ctx.createLinearGradient(0, 0, 0, CANVAS_HEIGHT);
+            gradient.addColorStop(0, '#1a1a5a');
+            gradient.addColorStop(1, '#4a4a8a');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+            // Draw buildings
+            gameState.backgrounds.forEach(building => {
+                ctx.fillStyle = building.color;
+                ctx.fillRect(
+                    building.x,
+                    CANVAS_HEIGHT - GROUND_HEIGHT - building.height,
+                    building.width,
+                    building.height
+                );
+                // Add windows
+                ctx.fillStyle = '#f1c40f';
+                for (let i = 0; i < building.height; i += 30) {
+                    for (let j = 0; j < building.width; j += 30) {
+                        if (Math.random() > 0.7) {
+                            ctx.fillRect(
+                                building.x + j + 5,
+                                CANVAS_HEIGHT - GROUND_HEIGHT - building.height + i + 5,
+                                20,
+                                20
+                            );
+                        }
+                    }
+                }
+            });
+
+            // Draw ground
+            ctx.fillStyle = '#333';
+            ctx.fillRect(0, CANVAS_HEIGHT - GROUND_HEIGHT, CANVAS_WIDTH, GROUND_HEIGHT);
+
+            // Draw magnet radius when active
+            if (gameState.activePowerUps.magnet) {
+                ctx.beginPath();
+                ctx.arc(player.x + player.width / 2, player.y + player.height / 2, player.magnetRadius, 0, Math.PI * 2);
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+                ctx.stroke();
+            }
+
+            // Draw player
+            ctx.fillStyle = player.color;
+            ctx.fillRect(player.x, player.y, player.width, player.height);
+
+            // Draw obstacles
+            ctx.fillStyle = '#ff0000';
+            obstacles.forEach(obstacle => {
+                ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
+            });
+
+            // Draw coins
+            ctx.fillStyle = '#f1c40f';
+            gameState.coins.forEach(coin => {
+                ctx.beginPath();
+                ctx.arc(
+                    coin.x + coin.width / 2,
+                    coin.y + coin.height / 2,
+                    coin.width / 2,
+                    0,
+                    Math.PI * 2
+                );
+                ctx.fill();
+            });
+
+            // Draw power-ups
+            gameState.powerUps.forEach(powerUp => {
+                ctx.fillStyle = powerUp.color;
+                ctx.beginPath();
+                ctx.arc(
+                    powerUp.x + powerUp.width / 2,
+                    powerUp.y + powerUp.height / 2,
+                    powerUp.width / 2,
+                    0,
+                    Math.PI * 2
+                );
+                ctx.fill();
+            });
+
+            // Draw particles
+            particles.forEach(particle => {
+                ctx.fillStyle = `rgba(${particle.color}, ${particle.life / particle.maxLife})`;
+                ctx.beginPath();
+                ctx.arc(particle.x, particle.y, particle.size, 0, Math.PI * 2);
+                ctx.fill();
+            });
+
+            // Draw combo multiplier
+            if (currentCombo > 1) {
+                ctx.fillStyle = '#f1c40f';
+                ctx.font = '24px Arial';
+                ctx.fillText(`${currentCombo.toFixed(1)}x`, player.x, player.y - 20);
+            }
+        }
+
+        // Power-up functions
+        function spawnPowerUp() {
+            const types = Object.values(POWERUP_TYPES);
+            const type = types[Math.floor(Math.random() * types.length)];
+            const powerUp = {
+                x: CANVAS_WIDTH,
+                y: CANVAS_HEIGHT - GROUND_HEIGHT - 100 - Math.random() * 100,
+                width: 30,
+                height: 30,
+                type: type,
+                color: getPowerUpColor(type)
+            };
+            gameState.powerUps.push(powerUp);
+        }
+
+        function getPowerUpColor(type) {
+            switch (type) {
+                case POWERUP_TYPES.SPEED_BOOST:
+                    return '#e74c3c';
+                case POWERUP_TYPES.DOUBLE_JUMP:
+                    return '#3498db';
+                case POWERUP_TYPES.INVINCIBILITY:
+                    return '#2ecc71';
+                case POWERUP_TYPES.MAGNET:
+                    return '#9b59b6';
+                default:
+                    return '#ffffff';
+            }
+        }
+
+        function activatePowerUp(type) {
+            switch (type) {
+                case POWERUP_TYPES.SPEED_BOOST:
+                    gameState.activePowerUps.speedBoost = true;
+                    gameState.speed *= 1.5;
+                    setTimeout(() => {
+                        gameState.speed /= 1.5;
+                        gameState.activePowerUps.speedBoost = false;
+                    }, 5000);
+                    break;
+                case POWERUP_TYPES.DOUBLE_JUMP:
+                    gameState.activePowerUps.doubleJump = true;
+                    setTimeout(() => {
+                        gameState.activePowerUps.doubleJump = false;
+                    }, 10000);
+                    break;
+                case POWERUP_TYPES.INVINCIBILITY:
+                    gameState.activePowerUps.invincibility = true;
+                    player.color = '#f1c40f';
+                    setTimeout(() => {
+                        gameState.activePowerUps.invincibility = false;
+                        player.color = currentCharacterColor;
+                    }, 5000);
+                    break;
+                case POWERUP_TYPES.MAGNET:
+                    gameState.activePowerUps.magnet = true;
+                    setTimeout(() => {
+                        gameState.activePowerUps.magnet = false;
+                    }, 7000);
+                    break;
+            }
+            updatePowerUpUI();
+        }
+
+        function updatePowerUpUI() {
+            const powerUpUI = document.getElementById('powerUpUI');
+            powerUpUI.innerHTML = '';
+            Object.entries(gameState.activePowerUps).forEach(([powerUp, isActive]) => {
+                if (isActive) {
+                    const div = document.createElement('div');
+                    div.className = 'active-powerup';
+                    div.textContent = `${powerUp.charAt(0).toUpperCase() + powerUp.slice(1)} Active!`;
+                    powerUpUI.appendChild(div);
+                }
+            });
+        }
+
+        // Coin functions
+        function spawnCoin() {
+            const coin = {
+                x: CANVAS_WIDTH,
+                y: CANVAS_HEIGHT - GROUND_HEIGHT - 60 - Math.random() * 120,
+                width: 20,
+                height: 20
+            };
+            gameState.coins.push(coin);
+        }
+
+        function collectCoin() {
+            coins += COIN_VALUE * currentCombo;
+            comboTimer = 60;
+            currentCombo += 0.1;
+            gameState.score += Math.floor(COIN_VALUE * currentCombo);
+        }
+
+        // Particle effects
+        function createParticles(x, y, color) {
+            for (let i = 0; i < 10; i++) {
+                particles.push({
+                    x: x,
+                    y: y,
+                    vx: (Math.random() - 0.5) * 5,
+                    vy: (Math.random() - 0.5) * 5,
+                    size: Math.random() * 3 + 1,
+                    color: color.replace('#', ''),
+                    life: 30,
+                    maxLife: 30
+                });
+            }
+        }
+
+        function checkCollisionWith(objA, objB) {
+            return objA.x < objB.x + objB.width &&
+                objA.x + objA.width > objB.x &&
+                objA.y < objB.y + objB.height &&
+                objA.y + objA.height > objB.y;
+        }
+
+        // Spawn new obstacle
+        function spawnObstacle() {
+            const obstacle = {
+                x: CANVAS_WIDTH,
+                y: CANVAS_HEIGHT - GROUND_HEIGHT - 40,
+                width: 40,
+                height: 40
+            };
+            obstacles.push(obstacle);
+        }
+
+        // Check collisions
+        function checkCollisions() {
+            if (gameState.activePowerUps.invincibility) return;
+
+            obstacles.forEach(obstacle => {
+                if (checkCollisionWith(player, obstacle)) {
+                    gameOver();
+                }
+            });
+        }
+
+        // Game over
+        function gameOver() {
+            gameState.isGameOver = true;
+
+            // Update high scores
+            const finalScore = gameState.score;
+            highScores.push(finalScore);
+            highScores.sort((a, b) => b - a);
+            highScores = highScores.slice(0, 5); // Keep only top 5 scores
+            localStorage.setItem('highScores', JSON.stringify(highScores));
+            updateHighScoresDisplay();
+
+            // Show game over screen
+            const startScreen = document.getElementById('startScreen');
+            startScreen.style.display = 'flex';
+            startScreen.innerHTML = `
+                <h1>Game Over!</h1>
+                <p>Score: ${finalScore}</p>
+                <p>Coins: ${coins}</p>
+                <button id="restartButton">Play Again</button>
+            `;
+
+            document.getElementById('restartButton').addEventListener('click', restartGame);
+        }
+
+        // Handle jump
+        function jump() {
+            if (!player.isJumping || (gameState.activePowerUps.doubleJump && player.isJumping)) {
+                player.velocityY = JUMP_FORCE;
+                player.isJumping = true;
+            }
+        }
+
+        // Update high scores display
+        function updateHighScoresDisplay() {
+            const scoresList = document.getElementById('scoresList');
+            scoresList.innerHTML = highScores
+                .map((score, index) => `<div>${index + 1}. ${score}</div>`)
+                .join('');
+        }
+
+        // Restart game
+        function restartGame() {
+            // Reset game state
+            gameState = {
+                score: 0,
+                speed: 5,
+                isGameOver: false,
+                backgrounds: gameState.backgrounds,
+                powerUps: [],
+                coins: [],
+                activePowerUps: {
+                    speedBoost: false,
+                    doubleJump: false,
+                    invincibility: false,
+                    magnet: false
+                }
+            };
+
+            // Reset player
+            player.y = CANVAS_HEIGHT - GROUND_HEIGHT - player.height;
+            player.velocityY = 0;
+            player.isJumping = false;
+            player.color = currentCharacterColor;
+
+            // Clear arrays
+            obstacles = [];
+            particles = [];
+            coins = 0;
+            currentCombo = 1;
+            comboTimer = 0;
+
+            // Hide start screen
+            document.getElementById('startScreen').style.display = 'none';
+
+            // Start game
+            isGameStarted = true;
+            gameLoop();
+        }
+
+        // Character customization
+        function showCustomization() {
+            const startScreen = document.getElementById('startScreen');
+            startScreen.innerHTML = `
+                <h1>Choose Your Character</h1>
+                <div style="display: flex; gap: 10px; margin: 20px;">
+                    ${characterColors.map(color => `
+                        <div onclick="selectCharacter('${color}')" 
+                             style="width: 40px; height: 40px; background-color: ${color}; 
+                                    cursor: pointer; border: ${color === currentCharacterColor ? '2px solid white' : 'none'}">
+                        </div>
+                    `).join('')}
+                </div>
+                <button id="backButton">Back</button>
+            `;
+            
+            document.getElementById('backButton').addEventListener('click', showStartScreen);
+        }
+
+        function selectCharacter(color) {
+            currentCharacterColor = color;
+            player.color = color;
+            showStartScreen();
+        }
+
+        function showStartScreen() {
+            const startScreen = document.getElementById('startScreen');
+            startScreen.innerHTML = `
+                <h1>Urban Runner</h1>
+                <p>Press Space or Touch to Jump<br>Collect coins and power-ups!</p>
+                <button id="startButton">Start Game</button>
+                <button id="customizeButton">Customize Character</button>
+            `;
+            
+            document.getElementById('startButton').addEventListener('click', restartGame);
+            document.getElementById('customizeButton').addEventListener('click', showCustomization);
+        }
+
+        // Event listeners
+        document.addEventListener('keydown', (event) => {
+            if (event.code === 'Space') {
+                if (!isGameStarted) {
+                    restartGame();
+                } else {
+                    jump();
+                }
+            }
+        });
+
+        // Touch events for mobile
+        document.addEventListener('touchstart', (event) => {
+            event.preventDefault();
+            if (!isGameStarted) {
+                restartGame();
+            } else {
+                jump();
+            }
+        });
+
+        // Initialize game
+        updateHighScoresDisplay();
+        document.getElementById('startButton').addEventListener('click', restartGame);
+        document.getElementById('customizeButton').addEventListener('click', showCustomization);
+        showStartScreen();
+    </script>
+</body>
+
+</html>
