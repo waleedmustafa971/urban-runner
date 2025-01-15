@@ -2,7 +2,8 @@
 
 A fast-paced HTML5 canvas game where you run, jump, and collect power-ups while avoiding obstacles in an urban environment.
 
-![Game Preview](locally)
+<img width="953" alt="image" src="https://github.com/user-attachments/assets/e7ae442c-b430-44c8-98f2-593c860ea2ed" />
+
 
 ## ✨ Features
 
