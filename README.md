@@ -201,7 +201,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## 📞 Contact
 
-Your Name - [@0x000waleed](https://twitter.com/0x000waleed
+X - [@0x000waleed](https://twitter.com/0x000waleed
 )
 
 Project Link: [https://github.com/waleedmustafa971/urban-runner](https://github.com/waleedmustafa971/urban-runner)
